@@ -10,9 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -29,12 +26,11 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.speaksnap.english.data.repository.ClaudeRepository
+import com.speaksnap.english.data.repository.AIService
 import com.speaksnap.english.data.repository.ScanRepository
 import com.speaksnap.english.data.repository.SettingsRepository
 import com.speaksnap.english.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.*
@@ -42,7 +38,7 @@ import java.util.*
 enum class UploadState { IDLE, CAPTURED, PROCESSING, DONE, ERROR }
 
 class UploadViewModel(
-    private val claudeRepo: ClaudeRepository,
+    private val aiService: AIService,
     private val scanRepo: ScanRepository,
     private val settingsRepo: SettingsRepository
 ) : ViewModel() {
@@ -58,36 +54,27 @@ class UploadViewModel(
 
     fun onPhotoTaken(context: android.content.Context, uri: Uri) {
         photoUri.value = uri
-        photoPath.value = uri.path ?: getRealPathFromUri(context, uri)
+        photoPath.value = getRealPathFromUri(context, uri)
         state.value = UploadState.CAPTURED
     }
 
-    fun startProcessing(context: android.content.Context) {
+    fun startProcessing() {
         viewModelScope.launch {
             state.value = UploadState.PROCESSING
-            progress.value = 0.1f
+            progress.value = 0.15f
             progressText.value = "OCR 文字识别中..."
 
-            val apiKey = settingsRepo.getApiKey()
-            if (apiKey.isBlank()) {
-                state.value = UploadState.ERROR
-                errorMessage.value = "请先在设置中输入 Anthropic API Key"
-                return@launch
-            }
-
             try {
+                val imagePath = photoPath.value ?: run {
+                    state.value = UploadState.ERROR; errorMessage.value = "未找到图片"; return@launch
+                }
+
                 progress.value = 0.3f
                 progressText.value = "AI 提取单词中..."
 
-                val imagePath = photoPath.value ?: run {
-                    state.value = UploadState.ERROR
-                    errorMessage.value = "未找到图片"
-                    return@launch
-                }
-
-                val result = claudeRepo.analyzeImage(apiKey, imagePath)
+                val result = aiService.analyzeImage(imagePath)
                 result.onSuccess { content ->
-                    progress.value = 0.6f
+                    progress.value = 0.65f
                     progressText.value = "整理短语和语法..."
                     val title = content.title.ifBlank { "课程 ${Date()}" }
                     val scanId = scanRepo.createScan(title, photoPath.value)
@@ -113,15 +100,8 @@ class UploadViewModel(
             state.value = UploadState.PROCESSING
             progressText.value = "AI 正在整理笔记..."
 
-            val apiKey = settingsRepo.getApiKey()
-            if (apiKey.isBlank()) {
-                state.value = UploadState.ERROR
-                errorMessage.value = "请先在设置中输入 Anthropic API Key"
-                return@launch
-            }
-
             try {
-                val result = claudeRepo.analyzeText(apiKey, manualText.value, manualTitle.value.ifBlank { "手动输入" })
+                val result = aiService.analyzeText(manualText.value, manualTitle.value.ifBlank { "手动输入" })
                 result.onSuccess { content ->
                     val scanId = scanRepo.createScan(manualTitle.value.ifBlank { "手动笔记" }, null)
                     scanRepo.updateScanWithResult(scanId, manualText.value, content)
@@ -156,12 +136,12 @@ class UploadViewModel(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadScreen(
-    claudeRepo: ClaudeRepository,
+    aiService: AIService,
     scanRepo: ScanRepository,
     settingsRepo: SettingsRepository,
     onNavigateToResult: (Long) -> Unit,
     viewModel: UploadViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = UploadViewModel(claudeRepo, scanRepo, settingsRepo) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = UploadViewModel(aiService, scanRepo, settingsRepo) as T
     })
 ) {
     val context = LocalContext.current
@@ -173,7 +153,6 @@ fun UploadScreen(
     val manualTitle by viewModel.manualTitle.collectAsState()
     val showManual by viewModel.showManualInput.collectAsState()
 
-    val photoUri by viewModel.photoUri.collectAsState()
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -191,7 +170,6 @@ fun UploadScreen(
 
     LaunchedEffect(state) {
         if (state == UploadState.DONE) {
-            // navigate back after short delay
             kotlinx.coroutines.delay(500)
             viewModel.reset()
         }
@@ -209,7 +187,6 @@ fun UploadScreen(
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
 
-            // Camera button
             item {
                 Card(
                     Modifier.fillMaxWidth().clickable {
@@ -228,74 +205,40 @@ fun UploadScreen(
                     border = BorderStroke(2.dp, BorderLight)
                 ) {
                     Column(Modifier.padding(40.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("📤", fontSize = 48.sp)
+                        Text("📸", fontSize = 48.sp)
                         Spacer(Modifier.height(12.dp))
                         Text("点击拍照教材/笔记", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Text("AI 自动识别单词、短语、语法点", color = TextMuted, fontSize = 12.sp)
                     }
                 }
 
-                // Other options
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Card(
-                        Modifier.weight(1f).clickable { showManualInput -> viewModel.showManualInput.value = true },
-                        colors = CardDefaults.cardColors(containerColor = CardBackground),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, BorderDark)
-                    ) {
+                    Card(Modifier.weight(1f).clickable { viewModel.showManualInput.value = true }, colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, BorderDark)) {
                         Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📝", fontSize = 30.sp)
-                            Text("手动输入笔记", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("📝", fontSize = 30.sp); Text("手动输入笔记", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
-                    Card(
-                        Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = CardBackground),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, BorderDark)
-                    ) {
+                    Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, BorderDark)) {
                         Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("🎙️", fontSize = 30.sp)
-                            Text("上传录音", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Card(
-                        Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = CardBackground),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, BorderDark)
-                    ) {
-                        Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📋", fontSize = 30.sp)
-                            Text("拍摄课程目录", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("🎙️", fontSize = 30.sp); Text("上传录音", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
 
-            // Processing modal
+            // Processing
             if (state == UploadState.PROCESSING) {
                 item {
                     Spacer(Modifier.height(24.dp))
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = CardBackground),
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, BorderLight)
-                    ) {
+                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, BorderLight)) {
                         Column(Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("⚙️", fontSize = 48.sp)
                             Spacer(Modifier.height(12.dp))
                             Text("AI 正在整理...", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Text(progressText, color = TextMuted, fontSize = 13.sp)
                             Spacer(Modifier.height(16.dp))
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)),
-                                color = PrimaryIndigo,
-                                trackColor = SurfaceDark
-                            )
+                            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)), color = PrimaryIndigo, trackColor = SurfaceDark)
                             Spacer(Modifier.height(8.dp))
                             Text("${(progress * 100).toInt()}%", color = TextDim, fontSize = 11.sp)
                         }
@@ -318,7 +261,7 @@ fun UploadScreen(
                 }
             }
 
-            // Manual input modal
+            // Manual input
             if (showManual) {
                 item {
                     Spacer(Modifier.height(16.dp))
@@ -326,19 +269,9 @@ fun UploadScreen(
                         Column(Modifier.padding(20.dp)) {
                             Text("📝 手动输入笔记", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(12.dp))
-                            OutlinedTextField(
-                                value = manualTitle, onValueChange = { viewModel.manualTitle.value = it },
-                                label = { Text("课程名称") },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark)
-                            )
+                            OutlinedTextField(value = manualTitle, onValueChange = { viewModel.manualTitle.value = it }, label = { Text("课程名称") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark))
                             Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = manualText, onValueChange = { viewModel.manualText.value = it },
-                                label = { Text("输入笔记内容...") },
-                                modifier = Modifier.fillMaxWidth().height(150.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark)
-                            )
+                            OutlinedTextField(value = manualText, onValueChange = { viewModel.manualText.value = it }, label = { Text("输入笔记内容...") }, modifier = Modifier.fillMaxWidth().height(150.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark))
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { viewModel.processManualText() }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo), shape = RoundedCornerShape(12.dp)) { Text("保存并整理") }
                             Spacer(Modifier.height(8.dp))

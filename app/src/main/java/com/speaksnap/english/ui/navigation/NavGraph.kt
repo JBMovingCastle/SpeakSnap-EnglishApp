@@ -7,7 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.speaksnap.english.data.local.AppDatabase
-import com.speaksnap.english.data.repository.ClaudeRepository
+import com.speaksnap.english.data.repository.AIService
 import com.speaksnap.english.data.repository.ScanRepository
 import com.speaksnap.english.data.repository.SettingsRepository
 import com.speaksnap.english.ui.conversation.ConversationScreen
@@ -23,7 +23,7 @@ fun SpeakSnapNavGraph(
     navController: NavHostController,
     db: AppDatabase,
     settingsRepo: SettingsRepository,
-    claudeRepo: ClaudeRepository
+    aiService: AIService
 ) {
     val scanRepo = ScanRepository(db)
 
@@ -35,13 +35,14 @@ fun SpeakSnapNavGraph(
                 onNavigateToUpload = { navController.navigate(Screen.Upload.route) },
                 onNavigateToResult = { scanId -> navController.navigate(DetailRoutes.aiResult(scanId)) },
                 onNavigateToFlashcards = { navController.navigate(Screen.Flashcards.route) },
+                onNavigateToPractice = { navController.navigate(Screen.Practice.route) },
                 onNavigateToPlan = { scanId -> navController.navigate(DetailRoutes.weeklyPlan(scanId)) }
             )
         }
 
         composable(Screen.Upload.route) {
             UploadScreen(
-                claudeRepo = claudeRepo,
+                aiService = aiService,
                 scanRepo = scanRepo,
                 settingsRepo = settingsRepo,
                 onNavigateToResult = { scanId -> navController.navigate(DetailRoutes.aiResult(scanId)) }
@@ -54,7 +55,7 @@ fun SpeakSnapNavGraph(
 
         composable(Screen.Practice.route) {
             ConversationScreen(
-                claudeRepo = claudeRepo,
+                aiService = aiService,
                 settingsRepo = settingsRepo,
                 scanRepo = scanRepo
             )

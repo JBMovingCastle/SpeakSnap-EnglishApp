@@ -3,14 +3,10 @@ package com.speaksnap.english
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -19,7 +15,9 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.speaksnap.english.data.local.AppDatabase
+import com.speaksnap.english.data.repository.AIService
 import com.speaksnap.english.data.repository.ClaudeRepository
+import com.speaksnap.english.data.repository.DeepSeekRepository
 import com.speaksnap.english.data.repository.SettingsRepository
 import com.speaksnap.english.ui.navigation.Screen
 import com.speaksnap.english.ui.navigation.SpeakSnapNavGraph
@@ -32,15 +30,13 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDatabase.getInstance(this)
         val settingsRepo = SettingsRepository(this)
-        val claudeRepo = ClaudeRepository()
+        val aiService = AIService(settingsRepo, ClaudeRepository(), DeepSeekRepository())
 
         setContent {
             SpeakSnapTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
-
-                // Only show bottom nav on main screens
                 val showBottomBar = bottomNavItems.any { it.route == currentRoute }
 
                 Scaffold(
@@ -63,12 +59,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         },
                                         label = {
-                                            Text(
-                                                screen.title,
-                                                fontSize = 10.sp,
-                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (selected) SecondaryIndigo else Color(0xFF666666)
-                                            )
+                                            Text(screen.title, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) SecondaryIndigo else Color(0xFF666666))
                                         },
                                         selected = selected,
                                         onClick = {
@@ -86,12 +77,7 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding)) {
-                        SpeakSnapNavGraph(
-                            navController = navController,
-                            db = db,
-                            settingsRepo = settingsRepo,
-                            claudeRepo = claudeRepo
-                        )
+                        SpeakSnapNavGraph(navController = navController, db = db, settingsRepo = settingsRepo, aiService = aiService)
                     }
                 }
             }

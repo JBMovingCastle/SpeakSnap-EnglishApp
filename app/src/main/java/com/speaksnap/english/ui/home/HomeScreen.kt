@@ -46,6 +46,7 @@ fun HomeScreen(
     onNavigateToUpload: () -> Unit,
     onNavigateToResult: (Long) -> Unit,
     onNavigateToFlashcards: () -> Unit,
+    onNavigateToPractice: () -> Unit,
     onNavigateToPlan: (Long) -> Unit,
     viewModel: HomeViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeViewModel(scanRepo) as T
@@ -92,7 +93,7 @@ fun HomeScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     QuickAction("📸", "拍照上传", onClick = onNavigateToUpload)
                     QuickAction("📖", "背单词", onClick = onNavigateToFlashcards)
-                    QuickAction("💬", "AI 对话", onClick = { })
+                    QuickAction("💬", "AI 对话", onClick = onNavigateToPractice)
                     QuickAction("📅", "学习计划", onClick = { if (scans.isNotEmpty()) onNavigateToPlan(scans.first().id) })
                 }
                 Spacer(Modifier.height(20.dp))
