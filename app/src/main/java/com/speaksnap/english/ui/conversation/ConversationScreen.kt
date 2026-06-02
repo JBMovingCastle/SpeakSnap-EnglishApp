@@ -115,7 +115,7 @@ fun ChatBubble(msg: ChatMessage, isUser: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (isUser) PrimaryIndigo else SurfaceDark,
-            shape = RoundedCornerShape(16.dp).let { if (isUser) it.copy(bottomEnd = RoundedCornerShape(4.dp)) else it.copy(bottomStart = RoundedCornerShape(4.dp)) },
+            shape = if (isUser) RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp) else RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
             modifier = Modifier.widthIn(max = 320.dp)
         ) {
             Column(Modifier.padding(12.dp)) {

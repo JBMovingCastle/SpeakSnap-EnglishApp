@@ -160,7 +160,7 @@ fun StatCard(label: String, value: String, change: String, modifier: Modifier = 
 }
 
 @Composable
-fun QuickAction(icon: String, label: String, onClick: () -> Unit) {
+fun RowScope.QuickAction(icon: String, label: String, onClick: () -> Unit) {
     Card(
         Modifier.weight(1f).clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = CardBackground),

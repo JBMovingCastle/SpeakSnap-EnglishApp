@@ -18,7 +18,9 @@ import com.speaksnap.english.data.local.AppDatabase
 import com.speaksnap.english.data.repository.AIService
 import com.speaksnap.english.data.repository.ClaudeRepository
 import com.speaksnap.english.data.repository.DeepSeekRepository
+import com.speaksnap.english.data.repository.DoubaoRepository
 import com.speaksnap.english.data.repository.SettingsRepository
+import com.speaksnap.english.data.repository.TongyiRepository
 import com.speaksnap.english.ui.navigation.Screen
 import com.speaksnap.english.ui.navigation.SpeakSnapNavGraph
 import com.speaksnap.english.ui.navigation.bottomNavItems
@@ -30,7 +32,13 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDatabase.getInstance(this)
         val settingsRepo = SettingsRepository(this)
-        val aiService = AIService(settingsRepo, ClaudeRepository(), DeepSeekRepository())
+        val aiService = AIService(
+            settings = settingsRepo,
+            tongyi = TongyiRepository(),
+            deepseek = DeepSeekRepository(),
+            doubao = DoubaoRepository(),
+            claude = ClaudeRepository()
+        )
 
         setContent {
             SpeakSnapTheme {

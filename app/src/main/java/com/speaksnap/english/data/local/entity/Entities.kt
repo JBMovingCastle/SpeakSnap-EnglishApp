@@ -60,7 +60,7 @@ data class VocabularyItem(
 data class LearningPlan(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val scanId: Long,
-    val weekNumber: Int,
+    val weekNumber: Int = 1,
     val dayNumber: Int, // 1-5
     val title: String,
     val description: String = "",

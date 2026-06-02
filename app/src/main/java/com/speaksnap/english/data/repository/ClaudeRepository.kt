@@ -12,7 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 class ClaudeRepository(
-    private val api: ClaudeApiService = NetworkModule.createAnthropicService(),
+    private val api: ClaudeApiService = NetworkModule.anthropicService(),
     private val gson: Gson = Gson()
 ) {
 
