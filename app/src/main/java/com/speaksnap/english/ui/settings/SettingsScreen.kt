@@ -21,37 +21,37 @@ import com.speaksnap.english.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class SettingsViewModel(private val settingsRepo: SettingsRepository) : ViewModel() {
-    val provider = MutableStateFlow("deepseek")
-    val deepseekKey = MutableStateFlow("")
-    val deepseekModel = MutableStateFlow("deepseek-chat")
-    val claudeKey = MutableStateFlow("")
-    val claudeModel = MutableStateFlow("claude-sonnet-4-20250514")
-    val userName = MutableStateFlow("Alex")
-    val accent = MutableStateFlow("american")
-    val saved = MutableStateFlow(false)
+class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
+    // OCR
+    val ocrProvider = MutableStateFlow("tongyi"); val ocrKey = MutableStateFlow("")
+    // Text
+    val textProvider = MutableStateFlow("deepseek"); val textKey = MutableStateFlow("")
+    // Conversation
+    val convoProvider = MutableStateFlow("doubao"); val convoKey = MutableStateFlow("")
+    // Extra
+    val doubaoKey = MutableStateFlow(""); val claudeKey = MutableStateFlow("")
+    // General
+    val userName = MutableStateFlow("Alex"); val saved = MutableStateFlow(false)
 
     init {
-        viewModelScope.launch { settingsRepo.activeProvider.collect { provider.value = it } }
-        viewModelScope.launch { settingsRepo.deepseekApiKey.collect { deepseekKey.value = it } }
-        viewModelScope.launch { settingsRepo.deepseekModel.collect { deepseekModel.value = it } }
-        viewModelScope.launch { settingsRepo.claudeApiKey.collect { claudeKey.value = it } }
-        viewModelScope.launch { settingsRepo.claudeModel.collect { claudeModel.value = it } }
-        viewModelScope.launch { settingsRepo.userName.collect { userName.value = it } }
-        viewModelScope.launch { settingsRepo.accent.collect { accent.value = it } }
+        viewModelScope.launch { repo.ocrProvider.collect { ocrProvider.value = it } }
+        viewModelScope.launch { repo.ocrKey.collect { ocrKey.value = it } }
+        viewModelScope.launch { repo.textProvider.collect { textProvider.value = it } }
+        viewModelScope.launch { repo.textKey.collect { textKey.value = it } }
+        viewModelScope.launch { repo.convoProvider.collect { convoProvider.value = it } }
+        viewModelScope.launch { repo.convoKey.collect { convoKey.value = it } }
+        viewModelScope.launch { repo.doubaoKey.collect { doubaoKey.value = it } }
+        viewModelScope.launch { repo.claudeKey.collect { claudeKey.value = it } }
+        viewModelScope.launch { repo.userName.collect { userName.value = it } }
     }
 
-    fun save() {
-        viewModelScope.launch {
-            settingsRepo.setProvider(provider.value)
-            settingsRepo.setDeepSeekApiKey(deepseekKey.value)
-            settingsRepo.setDeepSeekModel(deepseekModel.value)
-            settingsRepo.setClaudeApiKey(claudeKey.value)
-            settingsRepo.setClaudeModel(claudeModel.value)
-            settingsRepo.setUserName(userName.value)
-            settingsRepo.setAccent(accent.value)
-            saved.value = true
-        }
+    fun save() = viewModelScope.launch {
+        repo.setOcrProvider(ocrProvider.value); repo.setOcrKey(ocrKey.value)
+        repo.setTextProvider(textProvider.value); repo.setTextKey(textKey.value)
+        repo.setConvoProvider(convoProvider.value); repo.setConvoKey(convoKey.value)
+        repo.setDoubaoKey(doubaoKey.value); repo.setClaudeKey(claudeKey.value)
+        repo.setUserName(userName.value)
+        saved.value = true
     }
 }
 
@@ -63,166 +63,163 @@ fun SettingsScreen(
         override fun <T : ViewModel> create(modelClass: Class<T>): T = SettingsViewModel(settingsRepo) as T
     })
 ) {
-    val provider by viewModel.provider.collectAsState()
-    val deepseekKey by viewModel.deepseekKey.collectAsState()
-    val deepseekModel by viewModel.deepseekModel.collectAsState()
-    val claudeKey by viewModel.claudeKey.collectAsState()
-    val claudeModel by viewModel.claudeModel.collectAsState()
-    val userName by viewModel.userName.collectAsState()
-    val saved by viewModel.saved.collectAsState()
+    val ocrProv by viewModel.ocrProvider.collectAsState(); val ocrK by viewModel.ocrKey.collectAsState()
+    val txtProv by viewModel.textProvider.collectAsState(); val txtK by viewModel.textKey.collectAsState()
+    val cnvProv by viewModel.convoProvider.collectAsState(); val cnvK by viewModel.convoKey.collectAsState()
+    val dbKey by viewModel.doubaoKey.collectAsState(); val clKey by viewModel.claudeKey.collectAsState()
+    val userName by viewModel.userName.collectAsState(); val saved by viewModel.saved.collectAsState()
+    LaunchedEffect(saved) { if (saved) { kotlinx.coroutines.delay(2000); viewModel.saved.value = false } }
 
-    LaunchedEffect(saved) {
-        if (saved) { kotlinx.coroutines.delay(2000); viewModel.saved.value = false }
-    }
+    val providers = listOf(
+        "tongyi" to "☁️ 通义千问",
+        "deepseek" to "🦈 DeepSeek",
+        "doubao" to "🫘 豆包",
+        "claude" to "🧠 Claude"
+    )
 
-    Scaffold(
-        topBar = {
-            Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(PrimaryIndigo, PrimaryViolet))).padding(horizontal = 20.dp, vertical = 50.dp)) {
-                Column {
-                    Text("⚙️ 设置", color = TextWhite, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text("配置 AI 接口和偏好", color = TextWhite.copy(alpha = 0.75f), fontSize = 11.sp)
-                }
+    Scaffold(topBar = {
+        Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(PrimaryIndigo, PrimaryViolet))).padding(horizontal = 20.dp, vertical = 50.dp)) {
+            Column {
+                Text("⚙️ 多模型配置", color = TextWhite, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("每个任务独立选择服务商", color = TextWhite.copy(alpha = 0.75f), fontSize = 11.sp)
             }
         }
-    ) { padding ->
+    }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-            // ---- Provider Selector ----
+            // ========== 📸 OCR 图片识别 ==========
+            item {
+                ProviderCard("📸 拍照OCR · 图片识别", "推荐：阿里通义千问 Qwen-VL-Max", ocrProv, ocrK,
+                    onProviderChange = { viewModel.ocrProvider.value = it },
+                    onKeyChange = { viewModel.ocrKey.value = it },
+                    providers, PrimaryIndigo
+                )
+            }
+
+            // ========== 📖 文本分析 ==========
+            item {
+                ProviderCard("📖 文本分析 · 内容提取", "推荐：DeepSeek V3 · ¥1/百万token", txtProv, txtK,
+                    onProviderChange = { viewModel.textProvider.value = it },
+                    onKeyChange = { viewModel.textKey.value = it },
+                    providers, SuccessGreen
+                )
+            }
+
+            // ========== 💬 AI 对话 ==========
+            item {
+                ProviderCard("💬 AI 对话 · 语音练习", "推荐：豆包 Doubao · 支持语音TTS", cnvProv, cnvK,
+                    onProviderChange = { viewModel.convoProvider.value = it },
+                    onKeyChange = { viewModel.convoKey.value = it },
+                    providers, WarningAmber
+                )
+            }
+
+            // ========== 备用 Key ==========
             item {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderDark)) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("🤖 AI 服务商", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text("选择你要用的大模型", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            listOf(
-                                "deepseek" to "🦈 DeepSeek",
-                                "claude" to "🧠 Claude"
-                            ).forEach { (p, label) ->
-                                FilterChip(
-                                    selected = provider == p,
-                                    onClick = { viewModel.provider.value = p },
-                                    label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
-                                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PrimaryIndigo, selectedLabelColor = TextWhite)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+                        Text("🔑 备用 API Key", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("当以上配置无效时自动使用", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 12.dp))
 
-            // ---- DeepSeek Config ----
-            if (provider == "deepseek") {
-                item {
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, if (provider == "deepseek") PrimaryIndigo else BorderDark)) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("🦈 DeepSeek API Key", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("获取地址：platform.deepseek.com/api_keys", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
-                            OutlinedTextField(
-                                value = deepseekKey, onValueChange = { viewModel.deepseekKey.value = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("sk-...", color = TextDim) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark),
-                                shape = RoundedCornerShape(12.dp), singleLine = true
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text("模型", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(
-                                    "deepseek-chat" to "V3 (快)",
-                                    "deepseek-reasoner" to "R1 (深思考)"
-                                ).forEach { (m, label) ->
-                                    FilterChip(
-                                        selected = deepseekModel == m,
-                                        onClick = { viewModel.deepseekModel.value = m },
-                                        label = { Text(label, fontSize = 12.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PrimaryIndigo, selectedLabelColor = TextWhite)
-                                    )
-                                }
-                            }
-                            Text("💡 DeepSeek V3 支持图片识别，速度快。R1 推理能力强但不支持图片。", color = TextDim, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
-                        }
-                    }
-                }
-            }
-
-            // ---- Claude Config ----
-            if (provider == "claude") {
-                item {
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, if (provider == "claude") PrimaryViolet else BorderDark)) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("🧠 Claude API Key", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("获取地址：console.anthropic.com", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
-                            OutlinedTextField(
-                                value = claudeKey, onValueChange = { viewModel.claudeKey.value = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("sk-ant-api03-...", color = TextDim) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryViolet, unfocusedBorderColor = BorderDark),
-                                shape = RoundedCornerShape(12.dp), singleLine = true
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text("模型", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(
-                                    "claude-sonnet-4-20250514" to "Sonnet 4",
-                                    "claude-opus-4-20250514" to "Opus 4",
-                                    "claude-haiku-4-5-20251001" to "Haiku 4.5"
-                                ).forEach { (m, label) ->
-                                    FilterChip(
-                                        selected = claudeModel == m,
-                                        onClick = { viewModel.claudeModel.value = m },
-                                        label = { Text(label, fontSize = 12.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PrimaryViolet, selectedLabelColor = TextWhite)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ---- User Name ----
-            item {
-                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderDark)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("👤 你的名字", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = userName, onValueChange = { viewModel.userName.value = it },
+                        OutlinedTextField(value = dbKey, onValueChange = { viewModel.doubaoKey.value = it },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark),
-                            shape = RoundedCornerShape(12.dp), singleLine = true
+                            label = { Text("🫘 豆包 API Key") },
+                            placeholder = { Text("从火山方舟控制台获取", color = TextDim) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            colors = fieldColors(), shape = RoundedCornerShape(12.dp), singleLine = true
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = clKey, onValueChange = { viewModel.claudeKey.value = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("🧠 Claude API Key") },
+                            placeholder = { Text("sk-ant-api03-...", color = TextDim) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            colors = fieldColors(), shape = RoundedCornerShape(12.dp), singleLine = true
                         )
                     }
                 }
             }
 
-            // ---- Save ----
-            item {
-                Button(onClick = { viewModel.save() }, Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo), shape = RoundedCornerShape(14.dp)) {
-                    Text(if (saved) "✅ 已保存" else "💾 保存设置", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // ---- About ----
+            // ========== 用户名 ==========
             item {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderDark)) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("ℹ️ 关于 SpeakSnap", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("👤 你的名字", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = userName, onValueChange = { viewModel.userName.value = it }, modifier = Modifier.fillMaxWidth(), colors = fieldColors(), shape = RoundedCornerShape(12.dp), singleLine = true)
+                    }
+                }
+            }
+
+            // Save
+            item {
+                Button(onClick = { viewModel.save() }, Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo), shape = RoundedCornerShape(14.dp)) {
+                    Text(if (saved) "✅ 已保存" else "💾 保存所有配置", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Key 获取指引
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderDark)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("🔗 API Key 获取地址", color = TextWhite, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        listOf(
+                            "☁️ 通义千问" to "https://bailian.console.aliyun.com",
+                            "🦈 DeepSeek" to "https://platform.deepseek.com/api_keys",
+                            "🫘 豆包" to "https://console.volcengine.com/ark",
+                            "🧠 Claude" to "https://console.anthropic.com"
+                        ).forEach { (name, url) ->
+                            Text("$name: $url", color = TextDim, fontSize = 11.sp, lineHeight = 20.sp)
+                        }
+                    }
+                }
+            }
+
+            // About
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderDark)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("ℹ️ SpeakSnap v1.0.0", color = TextWhite, fontWeight = FontWeight.Bold)
                         Text("🏰 New Oriental · 早日退休", color = TextSecondary, fontSize = 13.sp)
-                        Text("版本 1.0.0 (2026.06)", color = TextMuted, fontSize = 11.sp)
-                        Text("支持 DeepSeek & Claude · 默认 DeepSeek", color = TextDim, fontSize = 11.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text("💡 API Key 加密存储在本地\n💡 DeepSeek V3: ¥1/百万token，性价比极高\n💡 R1: ¥4/百万token，深度推理", color = TextDim, fontSize = 11.sp, lineHeight = 18.sp)
+                        Text("拍照→OCR→卡片→对话，一条龙学英语", color = TextDim, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
             }
 
             item { Spacer(Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@Composable
+fun fieldColors() = OutlinedTextFieldDefaults.colors(focusedTextColor = TextWhite, unfocusedTextColor = TextWhite, focusedBorderColor = PrimaryIndigo, unfocusedBorderColor = BorderDark)
+
+@Composable
+fun ProviderCard(
+    title: String, hint: String, provider: String, key: String,
+    onProviderChange: (String) -> Unit, onKeyChange: (String) -> Unit,
+    providers: List<Pair<String, String>>, accent: androidx.compose.ui.graphics.Color
+) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, accent.copy(alpha = 0.3f))) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(hint, color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 12.dp))
+
+            // Provider chips
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                providers.forEach { (p, label) ->
+                    FilterChip(selected = provider == p, onClick = { onProviderChange(p) }, label = { Text(label, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = accent, selectedLabelColor = TextWhite))
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(value = key, onValueChange = onKeyChange, modifier = Modifier.fillMaxWidth(),
+                label = { Text("API Key") }, placeholder = { Text("输入 $title 的 Key", color = TextDim) },
+                visualTransformation = PasswordVisualTransformation(),
+                colors = fieldColors(), shape = RoundedCornerShape(12.dp), singleLine = true
+            )
         }
     }
 }

@@ -11,167 +11,74 @@ import com.speaksnap.english.data.remote.dto.*
 import java.io.ByteArrayOutputStream
 import java.io.File
 
+/**
+ * DeepSeek — 专长：文本分析/推理，性价比极高
+ * deepseek-chat (V3): ¥1/百万token，支持图片
+ * deepseek-reasoner (R1): ¥4/百万token，深度推理
+ */
 class DeepSeekRepository(
-    private val api: DeepSeekApiService = NetworkModule.createDeepSeekService(),
-    private val gson: Gson = Gson()
+    private val api: DeepSeekApiService = NetworkModule.deepseekService()
 ) {
 
-    suspend fun analyzeImage(apiKey: String, imagePath: String, model: String = "deepseek-chat"): Result<ExtractedContent> {
-        return try {
-            val base64Image = compressAndEncode(imagePath)
-            val messages = listOf(
-                DeepSeekMessage(role = "system", content = OCR_SYSTEM_PROMPT),
-                DeepSeekMessage(role = "user", content = listOf(
-                    DeepSeekContentPart(type = "image_url", imageUrl = ImageUrl(url = "data:image/jpeg;base64,$base64Image")),
-                    DeepSeekContentPart(type = "text", text = "Please analyze this image and extract all English learning content in the specified JSON format.")
-                ))
-            )
-            val request = DeepSeekRequest(model = model, maxTokens = 4096, messages = messages)
-            val response = api.createChatCompletion("Bearer $apiKey", request)
-            val text = response.choices.firstOrNull()?.message?.content ?: ""
-            val extracted = parseExtractedContent(text)
-            Result.success(extracted)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun analyzeImage(apiKey: String, imagePath: String, model: String = "deepseek-chat"): Result<ExtractedContent> = runCatching {
+        val b64 = compressAndEncode(imagePath)
+        val msgs = listOf(
+            OpenAIMessage("system", OCR_PROMPT),
+            OpenAIMessage("user", listOf(
+                OpenAIContentPart("image_url", imageUrl = OpenAIImageUrl("data:image/jpeg;base64,$b64")),
+                OpenAIContentPart("text", "提取所有英语学习内容，返回JSON")
+            ))
+        )
+        val resp = api.createChatCompletion("Bearer $apiKey", OpenAIChatRequest(model, msgs, 4096))
+        parse(resp.choices.firstOrNull()?.message?.content ?: "")
+    }
+
+    suspend fun analyzeText(apiKey: String, text: String, title: String, model: String = "deepseek-chat"): Result<ExtractedContent> = runCatching {
+        val resp = api.createChatCompletion("Bearer $apiKey", OpenAIChatRequest(model, listOf(
+            OpenAIMessage("system", TEXT_PROMPT),
+            OpenAIMessage("user", "Title: $title\n\nContent:\n$text")
+        ), 4096))
+        parse(resp.choices.firstOrNull()?.message?.content ?: "")
     }
 
     suspend fun generateConversation(
-        apiKey: String,
-        caseStudy: CaseStudyItem,
-        conversationHistory: List<Pair<String, String>>,
-        userMessage: String,
+        apiKey: String, caseStudy: CaseStudyItem,
+        history: List<Pair<String, String>>, userMessage: String,
         model: String = "deepseek-chat"
-    ): Result<String> {
-        return try {
-            val messages = mutableListOf<DeepSeekMessage>()
-            messages.add(DeepSeekMessage(role = "system", content = CONVERSATION_SYSTEM_PROMPT.format(
-                caseStudy.title, caseStudy.scenario, caseStudy.keyPoints.joinToString(", ")
-            )))
-            conversationHistory.forEach { (role, msg) ->
-                messages.add(DeepSeekMessage(role = if (role == "ai") "assistant" else "user", content = msg))
-            }
-            messages.add(DeepSeekMessage(role = "user", content = userMessage))
-
-            val request = DeepSeekRequest(model = model, maxTokens = 1024, messages = messages)
-            val response = api.createChatCompletion("Bearer $apiKey", request)
-            Result.success(response.choices.firstOrNull()?.message?.content ?: "")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    ): Result<String> = runCatching {
+        val msgs = mutableListOf<OpenAIMessage>()
+        msgs.add(OpenAIMessage("system", CONVO_PROMPT.format(caseStudy.title, caseStudy.scenario, caseStudy.keyPoints.joinToString(", "))))
+        history.forEach { (r, m) -> msgs.add(OpenAIMessage(if (r == "ai") "assistant" else "user", m)) }
+        msgs.add(OpenAIMessage("user", userMessage))
+        val resp = api.createChatCompletion("Bearer $apiKey", OpenAIChatRequest(model, msgs, 1024, 0.8))
+        resp.choices.firstOrNull()?.message?.content ?: ""
     }
 
-    suspend fun analyzeText(apiKey: String, text: String, title: String, model: String = "deepseek-chat"): Result<ExtractedContent> {
-        return try {
-            val messages = listOf(
-                DeepSeekMessage(role = "system", content = TEXT_ANALYSIS_SYSTEM_PROMPT),
-                DeepSeekMessage(role = "user", content = "Title: $title\n\nContent:\n$text")
-            )
-            val request = DeepSeekRequest(model = model, maxTokens = 4096, messages = messages)
-            val response = api.createChatCompletion("Bearer $apiKey", request)
-            val responseText = response.choices.firstOrNull()?.message?.content ?: ""
-            val extracted = parseExtractedContent(responseText)
-            Result.success(extracted)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    private fun compressAndEncode(path: String, maxDim: Int = 1568): String {
+        val f = File(path)
+        return if (f.exists()) {
+            val bmp = BitmapFactory.decodeFile(path)
+            val ratio = minOf(maxDim.toFloat() / (bmp?.width ?: 1), 1f)
+            val s = if (bmp != null && ratio < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt(), (bmp.height * ratio).toInt(), true) else bmp
+            val os = ByteArrayOutputStream(); s?.compress(Bitmap.CompressFormat.JPEG, 80, os); s?.recycle(); bmp?.recycle()
+            Base64.encodeToString(os.toByteArray(), Base64.NO_WRAP)
+        } else path
     }
 
-    private fun compressAndEncode(imagePath: String, maxDimension: Int = 1568): String {
-        val file = File(imagePath)
-        return if (file.exists()) {
-            val bitmap = BitmapFactory.decodeFile(imagePath)
-            val scaled = if (bitmap != null) {
-                val ratio = minOf(maxDimension.toFloat() / bitmap.width, maxDimension.toFloat() / bitmap.height, 1f)
-                if (ratio < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true) else bitmap
-            } else null
-            val outputStream = ByteArrayOutputStream()
-            scaled?.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-            scaled?.recycle()
-            bitmap?.recycle()
-            Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-        } else imagePath
-    }
-
-    private fun parseExtractedContent(responseText: String): ExtractedContent {
-        return try {
-            val jsonStr = responseText.replace("```json", "").replace("```", "").trim()
-            val json = JsonParser.parseString(jsonStr).asJsonObject
-
-            ExtractedContent(
-                title = json.get("title")?.asString ?: "",
-                words = json.getAsJsonArray("words")?.map { el ->
-                    val obj = el.asJsonObject
-                    WordItem(word = obj.get("word")?.asString ?: "", phonetic = obj.get("phonetic")?.asString ?: "", meaning = obj.get("meaning")?.asString ?: "", example = obj.get("example")?.asString ?: "")
-                } ?: emptyList(),
-                phrases = json.getAsJsonArray("phrases")?.map { el ->
-                    val obj = el.asJsonObject
-                    PhraseItem(phrase = obj.get("phrase")?.asString ?: "", meaning = obj.get("meaning")?.asString ?: "", usage = obj.get("usage")?.asString ?: "")
-                } ?: emptyList(),
-                grammarPoints = json.getAsJsonArray("grammar_points")?.map { el ->
-                    val obj = el.asJsonObject
-                    GrammarItem(title = obj.get("title")?.asString ?: "", explanation = obj.get("explanation")?.asString ?: "", example = obj.get("example")?.asString ?: "")
-                } ?: emptyList(),
-                caseStudies = json.getAsJsonArray("case_studies")?.map { el ->
-                    val obj = el.asJsonObject
-                    CaseStudyItem(title = obj.get("title")?.asString ?: "", scenario = obj.get("scenario")?.asString ?: "", keyPoints = obj.getAsJsonArray("key_points")?.map { it.asString } ?: emptyList(), starterDialogue = obj.get("starter_dialogue")?.asString ?: "")
-                } ?: emptyList()
-            )
-        } catch (e: Exception) {
-            ExtractedContent(title = "Extracted Content", words = listOf(WordItem(word = "Parsing error — raw response", meaning = responseText.take(500))))
-        }
-    }
+    private fun parse(text: String): ExtractedContent = try {
+        val j = JsonParser.parseString(text.replace("```json", "").replace("```", "").trim()).asJsonObject
+        ExtractedContent(
+            title = j.get("title")?.asString ?: "",
+            words = j.getAsJsonArray("words")?.map { val o=it.asJsonObject; WordItem(o.get("word")?.asString?:"",o.get("phonetic")?.asString?:"",o.get("meaning")?.asString?:"",o.get("example")?.asString?:"") }?:emptyList(),
+            phrases = j.getAsJsonArray("phrases")?.map { val o=it.asJsonObject; PhraseItem(o.get("phrase")?.asString?:"",o.get("meaning")?.asString?:"",o.get("usage")?.asString?:"") }?:emptyList(),
+            grammarPoints = j.getAsJsonArray("grammar_points")?.map { val o=it.asJsonObject; GrammarItem(o.get("title")?.asString?:"",o.get("explanation")?.asString?:"",o.get("example")?.asString?:"") }?:emptyList(),
+            caseStudies = j.getAsJsonArray("case_studies")?.map { val o=it.asJsonObject; CaseStudyItem(o.get("title")?.asString?:"",o.get("scenario")?.asString?:"",o.getAsJsonArray("key_points")?.map{it.asString}?:emptyList(),o.get("starter_dialogue")?.asString?:"") }?:emptyList()
+        )
+    } catch (e: Exception) { ExtractedContent("parse error", listOf(WordItem("raw", meaning=text.take(500)))) }
 
     companion object {
-        private val OCR_SYSTEM_PROMPT = """
-You are an expert English teacher. Analyze the provided image of textbook/notes and extract ALL learning content.
-
-Return a JSON object with this exact structure:
-{
-  "title": "Course unit title",
-  "words": [{"word": "...", "phonetic": "/.../", "meaning": "Chinese meaning", "example": "English example sentence"}],
-  "phrases": [{"phrase": "...", "meaning": "Chinese meaning", "usage": "When/how to use"}],
-  "grammar_points": [{"title": "Grammar topic", "explanation": "Simple explanation in Chinese", "example": "Example sentence"}],
-  "case_studies": [{"title": "Case name", "scenario": "Scenario description", "key_points": ["point1", "point2"], "starter_dialogue": "Opening dialogue line"}]
-}
-
-IMPORTANT:
-- Extract EVERY English word, phrase, grammar point visible in the image.
-- Provide Chinese meanings for all words and phrases.
-- Include phonetic transcriptions for words.
-- For case studies, create realistic business/daily-life dialogue scenarios based on the content.
-- Return ONLY valid JSON, no other text.
-        """.trimIndent()
-
-        private val TEXT_ANALYSIS_SYSTEM_PROMPT = """
-You are an expert English teacher. Analyze the provided text/notes and structure it into learning content.
-
-Return a JSON object with this exact structure:
-{
-  "title": "Topic title",
-  "words": [{"word": "...", "phonetic": "/.../", "meaning": "Chinese meaning", "example": "Example sentence"}],
-  "phrases": [{"phrase": "...", "meaning": "Chinese meaning", "usage": "Usage notes"}],
-  "grammar_points": [{"title": "Grammar topic", "explanation": "Explanation", "example": "Example"}],
-  "case_studies": [{"title": "Case name", "scenario": "Description", "key_points": ["..."], "starter_dialogue": "..."}]
-}
-
-Return ONLY valid JSON, no other text.
-        """.trimIndent()
-
-        private val CONVERSATION_SYSTEM_PROMPT = """
-You are an AI English teacher leading a conversation practice session.
-
-Context: %s
-Scenario: %s
-Key vocabulary to practice: %s
-
-Guidelines:
-- Keep responses concise (2-4 sentences).
-- Naturally incorporate the key vocabulary.
-- Provide gentle corrections if the student makes grammar mistakes (add 💡 Tip: ...).
-- Maintain a supportive, encouraging tone.
-- Adjust difficulty based on the student's level.
-- Speak as a native English speaker would in a real conversation.
-        """.trimIndent()
+        val OCR_PROMPT = """You are an expert English teacher. Analyze the image and extract ALL English learning content. Return ONLY JSON with: title, words[{word,phonetic,meaning,example}], phrases[{phrase,meaning,usage}], grammar_points[{title,explanation,example}], case_studies[{title,scenario,key_points[],starter_dialogue}]. Chinese meanings for all. ONLY valid JSON.""".trimIndent()
+        val TEXT_PROMPT = """You are an expert English teacher. Structure the text into learning content. Return ONLY JSON with words, phrases, grammar_points, case_studies. Chinese meanings for all items.""".trimIndent()
+        val CONVO_PROMPT = """Native English teacher. Scenario: %s | Context: %s | Keywords: %s. 2-4 sentences, correct mistakes with 💡 Tip, supportive tone.""".trimIndent()
     }
 }

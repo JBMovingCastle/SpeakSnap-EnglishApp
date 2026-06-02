@@ -6,36 +6,39 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-/**
- * Network dependency provider using simple singleton pattern.
- * Supports multiple AI providers (Anthropic Claude, DeepSeek).
- */
 object NetworkModule {
 
-    const val ANTHROPIC_BASE_URL = "https://api.anthropic.com/"
-    const val DEEPSEEK_BASE_URL = "https://api.deepseek.com/"
+    const val ANTHROPIC_BASE = "https://api.anthropic.com/"
+    const val DEEPSEEK_BASE  = "https://api.deepseek.com/"
+    const val TONGYI_BASE    = "https://dashscope.aliyuncs.com/"
+    const val DOUBAO_BASE    = "https://ark.cn-beijing.volces.com/"
 
-    private val loggingInterceptor = HttpLoggingInterceptor().apply {
+    private val logging = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
     }
 
-    fun createOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(loggingInterceptor)
+    private fun okHttp(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(logging)
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)       // TTS/OCR can be slow
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    fun createRetrofit(baseUrl: String): Retrofit = Retrofit.Builder()
-        .baseUrl(baseUrl)
-        .client(createOkHttpClient())
+    private fun retrofit(base: String) = Retrofit.Builder()
+        .baseUrl(base)
+        .client(okHttp())
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
-    // Lazy singletons
-    val anthropicRetrofit: Retrofit by lazy { createRetrofit(ANTHROPIC_BASE_URL) }
-    val deepseekRetrofit: Retrofit by lazy { createRetrofit(DEEPSEEK_BASE_URL) }
+    // ---- Lazy Retrofit instances ----
+    val anthropic: Retrofit by lazy { retrofit(ANTHROPIC_BASE) }
+    val deepseek:  Retrofit by lazy { retrofit(DEEPSEEK_BASE) }
+    val tongyi:    Retrofit by lazy { retrofit(TONGYI_BASE) }
+    val doubao:    Retrofit by lazy { retrofit(DOUBAO_BASE) }
 
-    inline fun <reified T> createAnthropicService(): T = anthropicRetrofit.create(T::class.java)
-    inline fun <reified T> createDeepSeekService(): T = deepseekRetrofit.create(T::class.java)
+    // ---- Type-safe service creators ----
+    inline fun <reified T> anthropicService(): T = anthropic.create(T::class.java)
+    inline fun <reified T> deepseekService():  T = deepseek.create(T::class.java)
+    inline fun <reified T> tongyiService():    T = tongyi.create(T::class.java)
+    inline fun <reified T> doubaoService():    T = doubao.create(T::class.java)
 }
