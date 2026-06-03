@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Book icon for SpeakSnap -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,32 L70,32 C72.2,32 74,33.8 74,36 L74,78 C74,80.2 72.2,82 70,82 L38,82 L38,32 Z" />
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M40,38 L68,38 L68,42 L40,42 Z" />
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M40,48 L68,48 L68,52 L40,52 Z" />
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M40,58 L60,58 L60,62 L40,62 Z" />
+    <!-- Camera lens -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M62,62 L78,62 C80.2,62 82,63.8 82,66 L82,70 C82,72.2 80.2,74 78,74 L62,74 C59.8,74 58,72.2 58,70 L58,66 C58,63.8 59.8,62 62,62 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,66 C71.1,66 72,66.9 72,68 C72,69.1 71.1,70 70,70 C68.9,70 68,69.1 68,68 C68,66.9 68.9,66 70,66 Z" />
+</vector>
