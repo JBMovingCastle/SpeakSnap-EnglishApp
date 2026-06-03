@@ -25,6 +25,7 @@ export default function SettingsPage() {
   const [claudeKey, setClaudeKey] = useState('');
   const [userName, setUserName] = useState('Alex');
   const [saved, setSaved] = useState(false);
+  const [modelRefreshKey, setModelRefreshKey] = useState(0);
 
   useEffect(() => {
     setOcrProvider(storage.getOCRProvider());
@@ -47,7 +48,9 @@ export default function SettingsPage() {
     storage.setConvoProvider(convoProvider); storage.setConvoKey(convoKey); storage.setConvoModel(convoModel);
     storage.setDoubaoKey(doubaoKey); storage.setClaudeKey(claudeKey);
     storage.setUserName(userName);
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setSaved(true);
+    setModelRefreshKey(k => k + 1);  // trigger re-check
+    setTimeout(() => setSaved(false), 2000);
   };
 
   const ProviderCard = ({ title, hint, provider, keyVal, model, onProvider, onKey, onModel, color }: {
@@ -79,7 +82,7 @@ export default function SettingsPage() {
     <div className="flex min-h-screen bg-speaksnap-bg">
       <Sidebar />
       <main className="flex-1 p-6 max-w-xl space-y-4">
-        <ModelStatusBar />
+        <ModelStatusBar refreshKey={modelRefreshKey} />
 
         <h2 className="text-xl font-bold text-white">⚙️ 多模型配置</h2>
         <p className="text-xs text-speaksnap-muted -mt-2">每个任务独立选择服务商，自动检测通断状态</p>

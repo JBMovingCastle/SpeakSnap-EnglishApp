@@ -58,13 +58,11 @@ export default function ConversationPage() {
     <div className="flex min-h-screen bg-speaksnap-bg">
       <Sidebar />
       <main className="flex-1 p-6 flex flex-col max-w-2xl">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="text-xl font-bold text-white">💬 AI 对话练习</h2>
-          <div className="flex gap-2 items-center">
-            <ModelStatusBar />
-            <button onClick={clear} className="text-xs text-speaksnap-dim hover:text-speaksnap-error">清空对话</button>
-          </div>
+          <button onClick={clear} className="text-xs text-speaksnap-dim hover:text-speaksnap-error">清空对话</button>
         </div>
+        <ModelStatusBar />
 
         {/* Chat area */}
         <div className="flex-1 space-y-3 overflow-y-auto mb-4 min-h-[400px] max-h-[60vh]">

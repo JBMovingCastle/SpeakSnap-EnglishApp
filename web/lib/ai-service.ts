@@ -1,33 +1,101 @@
 import type { ExtractedContent, CaseStudyItem, ChatMessage, ModelStatus } from './types';
 import { storage } from './storage';
 
-// ========== Model Status Checker ==========
-const PROVIDERS: { id: string; name: string; url: string; keyFn: () => string }[] = [
-  { id: 'tongyi', name: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models', keyFn: () => storage.getOCRKey() },
-  { id: 'deepseek', name: 'DeepSeek', url: 'https://api.deepseek.com/v1/models', keyFn: () => storage.getTextKey() },
-  { id: 'doubao', name: '豆包', url: 'https://ark.cn-beijing.volces.com/api/v3/models', keyFn: () => storage.getConvoKey() },
-  { id: 'claude', name: 'Claude', url: 'https://api.anthropic.com/v1/models', keyFn: () => storage.getClaudeKey() },
+// ========== Model Status Checker — 用真实 chat 请求测通断 ==========
+interface ProviderConfig {
+  id: string;
+  name: string;
+  checkUrl: string;
+  checkBody: object;
+  keys: (() => string)[];  // Try all possible key slots
+}
+
+const PROVIDER_CONFIGS: ProviderConfig[] = [
+  {
+    id: 'tongyi', name: '通义千问',
+    checkUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    checkBody: { model: 'qwen-turbo', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 },
+    keys: [() => storage.getOCRKey(), () => storage.getTextKey(), () => storage.getConvoKey(), () => storage.getDoubaoKey()],
+  },
+  {
+    id: 'deepseek', name: 'DeepSeek',
+    checkUrl: 'https://api.deepseek.com/v1/chat/completions',
+    checkBody: { model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 },
+    keys: [() => storage.getTextKey(), () => storage.getOCRKey(), () => storage.getConvoKey(), () => storage.getDoubaoKey()],
+  },
+  {
+    id: 'doubao', name: '豆包',
+    checkUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    checkBody: { model: 'doubao-1.5-lite-32k', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 },
+    keys: [() => storage.getConvoKey(), () => storage.getDoubaoKey(), () => storage.getTextKey(), () => storage.getOCRKey()],
+  },
+  {
+    id: 'claude', name: 'Claude',
+    checkUrl: 'https://api.anthropic.com/v1/messages',
+    checkBody: { model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] },
+    keys: [() => storage.getClaudeKey(), () => storage.getOCRKey(), () => storage.getTextKey()],
+  },
 ];
+
+function findKey(config: ProviderConfig): string {
+  for (const fn of config.keys) {
+    const k = fn();
+    if (k && k.trim().length > 5) return k.trim();
+  }
+  return '';
+}
 
 export async function checkAllModels(): Promise<ModelStatus[]> {
   const results: ModelStatus[] = [];
 
-  for (const p of PROVIDERS) {
-    const key = p.keyFn();
-    if (!key) { results.push({ provider: p.id, name: p.name, status: 'offline', error: '未配置 API Key' }); continue; }
+  for (const cfg of PROVIDER_CONFIGS) {
+    const key = findKey(cfg);
+    if (!key) {
+      results.push({ provider: cfg.id, name: cfg.name, status: 'offline', error: '未配置 API Key' });
+      continue;
+    }
 
-    results.push({ provider: p.id, name: p.name, status: 'checking' });
+    results.push({ provider: cfg.id, name: cfg.name, status: 'checking' });
     const start = Date.now();
     try {
-      const resp = await fetch(p.url, {
-        headers: { Authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(8000),
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (cfg.id === 'claude') {
+        headers['x-api-key'] = key;
+        headers['anthropic-version'] = '2023-06-01';
+      } else {
+        headers['Authorization'] = `Bearer ${key}`;
+      }
+
+      const resp = await fetch(cfg.checkUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(cfg.checkBody),
+        signal: AbortSignal.timeout(10000),
       });
-      results[results.length - 1] = resp.ok
-        ? { provider: p.id, name: p.name, status: 'online', latency: Date.now() - start }
-        : { provider: p.id, name: p.name, status: 'error', error: `HTTP ${resp.status}` };
+
+      const latency = Date.now() - start;
+      if (resp.ok) {
+        results[results.length - 1] = {
+          provider: cfg.id, name: cfg.name, status: 'online', latency,
+        };
+      } else {
+        const txt = await resp.text().catch(() => '');
+        const short = txt.slice(0, 120);
+        results[results.length - 1] = {
+          provider: cfg.id, name: cfg.name, status: 'error',
+          error: short.includes('invalid') || short.includes('Incorrect') ? 'Key 无效' :
+                 short.includes('quota') || short.includes('balance') ? '余额不足' :
+                 short.includes('rate') ? '请求过快' :
+                 `HTTP ${resp.status}`,
+        };
+      }
     } catch (e: any) {
-      results[results.length - 1] = { provider: p.id, name: p.name, status: 'offline', error: e.message || 'Network error' };
+      const msg = e.message || '';
+      results[results.length - 1] = {
+        provider: cfg.id, name: cfg.name, status: 'offline',
+        error: msg.includes('timeout') || msg.includes('abort') ? '连接超时' :
+               msg.includes('network') || msg.includes('fetch') ? '网络不通' : msg.slice(0, 60),
+      };
     }
   }
   return results;
@@ -38,7 +106,7 @@ export async function checkSingleModel(provider: string): Promise<ModelStatus> {
   return results.find(r => r.provider === provider) || { provider, name: provider, status: 'error', error: 'Unknown' };
 }
 
-// ========== OCR: analyze image via all 3 OCR-capable providers ==========
+// ========== OCR: analyze image ==========
 export async function analyzeImage(file: File): Promise<ExtractedContent> {
   const provider = storage.getOCRProvider();
   const key = storage.getOCRKey();
@@ -105,7 +173,10 @@ async function callOpenAI(baseUrl: string, key: string, model: string, messages:
     body: JSON.stringify({ model, messages, max_tokens: 1024, temperature: 0.8 }),
     signal: AbortSignal.timeout(30000),
   });
-  if (!resp.ok) throw new Error(`API error ${resp.status}: ${await resp.text()}`);
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`API error ${resp.status}: ${txt.slice(0, 200)}`);
+  }
   const data = await resp.json();
   return data.choices?.[0]?.message?.content || '';
 }
@@ -120,7 +191,7 @@ async function callTongyi(key: string, model: string, input: string, type: 'imag
     body: JSON.stringify({ model, messages: [{ role: 'system', content: OCR_PROMPT }, ...messages], max_tokens: 4096 }),
     signal: AbortSignal.timeout(60000),
   });
-  if (!resp.ok) throw new Error(`通义千问 error ${resp.status}`);
+  if (!resp.ok) throw new Error(`通义千问 HTTP ${resp.status}: ${(await resp.text()).slice(0, 150)}`);
   const data = await resp.json();
   return parseExtracted(data.choices?.[0]?.message?.content || '');
 }
@@ -135,7 +206,7 @@ async function callDeepSeek(key: string, model: string, input: string, type: 'im
     body: JSON.stringify({ model, messages: [{ role: 'system', content: OCR_PROMPT }, ...messages], max_tokens: 4096 }),
     signal: AbortSignal.timeout(60000),
   });
-  if (!resp.ok) throw new Error(`DeepSeek error ${resp.status}`);
+  if (!resp.ok) throw new Error(`DeepSeek HTTP ${resp.status}: ${(await resp.text()).slice(0, 150)}`);
   const data = await resp.json();
   return parseExtracted(data.choices?.[0]?.message?.content || '');
 }
@@ -152,7 +223,7 @@ async function callClaude(key: string, base64: string): Promise<ExtractedContent
     }),
     signal: AbortSignal.timeout(60000),
   });
-  if (!resp.ok) throw new Error(`Claude error ${resp.status}`);
+  if (!resp.ok) throw new Error(`Claude HTTP ${resp.status}`);
   const data = await resp.json();
   return parseExtracted(data.content?.[0]?.text || '');
 }
@@ -166,7 +237,7 @@ async function callClaudeText(key: string, text: string, title: string): Promise
     }),
     signal: AbortSignal.timeout(60000),
   });
-  if (!resp.ok) throw new Error(`Claude error ${resp.status}`);
+  if (!resp.ok) throw new Error(`Claude HTTP ${resp.status}`);
   const data = await resp.json();
   return parseExtracted(data.content?.[0]?.text || '');
 }
@@ -181,7 +252,7 @@ async function callClaudeConvo(key: string, messages: { role: string; content: s
     }),
     signal: AbortSignal.timeout(30000),
   });
-  if (!resp.ok) throw new Error(`Claude error ${resp.status}`);
+  if (!resp.ok) throw new Error(`Claude HTTP ${resp.status}`);
   const data = await resp.json();
   return data.content?.[0]?.text || '';
 }

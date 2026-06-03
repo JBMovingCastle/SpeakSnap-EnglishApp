@@ -37,7 +37,7 @@ export default function FlashcardsPage() {
     if (!word) return;
     const updated = [...mistakeWords.filter(w => w.word !== word.word), word];
     setMistakeWords(updated);
-    localStorage.setItem('_mistakes', JSON.stringify(updated));
+    storage.set('_mistakes', JSON.stringify(updated));
     next();
   };
 
